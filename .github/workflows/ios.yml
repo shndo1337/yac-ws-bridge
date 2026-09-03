@@ -1,0 +1,54 @@
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ios:
+    name: MAUI iOS (unsigned)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Show Xcode
+        run: xcodebuild -version || true
+
+      - name: Restore MAUI workloads
+        working-directory: maui-client
+        run: dotnet workload restore BridgeToFreedom.csproj --ignore-failed-sources
+
+      - name: Build unsigned .app (net10.0-ios, arm64)
+        working-directory: maui-client
+        run: |
+          dotnet build BridgeToFreedom.csproj \
+            -f net10.0-ios \
+            -c Release \
+            -p:RuntimeIdentifier=ios-arm64 \
+            -p:EnableCodeSigning=false \
+            -p:CodesignKey= \
+            -p:CodesignProvision= \
+            -p:ArchiveOnBuild=false \
+            -p:MtouchLink=SdkOnly
+
+      - name: Package unsigned IPA
+        working-directory: maui-client
+        run: |
+          set -e
+          APP=$(find bin/Release/net10.0-ios -maxdepth 3 -name '*.app' -type d | head -1)
+          echo "Found app bundle: $APP"
+          if [ -z "$APP" ]; then echo "No .app produced"; find bin -maxdepth 4 -name '*.app' -o -name '*.dll' | head; exit 1; fi
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry BridgeToFreedom-ios-unsigned.ipa Payload
+          ls -la BridgeToFreedom-ios-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: maui-client/BridgeToFreedom-ios-unsigned.ipa
+          if-no-files-found: error
