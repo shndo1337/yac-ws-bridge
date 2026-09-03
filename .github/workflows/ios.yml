@@ -14,13 +14,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Select newest Xcode
+      - name: Select Xcode 26.6
         run: |
           echo "Installed Xcodes:"; ls -d /Applications/Xcode*.app 2>/dev/null || true
-          NEWEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
-          echo "Selecting: $NEWEST"
-          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST/Contents/Developer"; fi
+          XC=/Applications/Xcode_26.6.app
+          if [ ! -d "$XC" ]; then XC=$(ls -d /Applications/Xcode_26.6*.app 2>/dev/null | sort -V | tail -1); fi
+          if [ ! -d "$XC" ]; then XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1); fi
+          echo "Using: $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          sudo xcodebuild -runFirstLaunch || true
+          echo "actool: $(xcrun --find actool 2>&1 || echo MISSING)"
+          echo "MacOSX SDKs:"; ls "$XC/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs" 2>&1 || true
           xcodebuild -version || true
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
 
       - name: Restore MAUI workloads
         working-directory: maui-client
