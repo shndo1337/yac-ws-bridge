@@ -14,8 +14,13 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Show Xcode
-        run: xcodebuild -version || true
+      - name: Select newest Xcode
+        run: |
+          echo "Installed Xcodes:"; ls -d /Applications/Xcode*.app 2>/dev/null || true
+          NEWEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Selecting: $NEWEST"
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST/Contents/Developer"; fi
+          xcodebuild -version || true
 
       - name: Restore MAUI workloads
         working-directory: maui-client
