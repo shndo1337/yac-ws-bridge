@@ -30,3 +30,9 @@ maui-client/publish
 maui-client-linux/bin
 maui-client-linux/obj
 maui-client-linux/publish
+# iOS NE build outputs
+ios-ne/build/
+ios-ne/BridgeNE.xcodeproj/
+ios-ne/Payload/
+ios-ne/*.ipa
+ios-ne/*.tipa

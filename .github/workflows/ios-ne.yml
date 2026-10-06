@@ -1,0 +1,90 @@
+name: iOS Network Extension (TrollStore)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-network-extension]
+    paths:
+      - 'ios-ne/**'
+      - '.github/workflows/ios-ne.yml'
+
+jobs:
+  build:
+    name: Native iOS app + Packet Tunnel (fake-signed)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ios-ne/core/go.mod
+          cache-dependency-path: ios-ne/core/go.sum
+
+      - name: Select Xcode 26.6
+        run: |
+          echo "Installed Xcodes:"; ls -d /Applications/Xcode*.app 2>/dev/null || true
+          XC=/Applications/Xcode_26.6.app
+          if [ ! -d "$XC" ]; then XC=$(ls -d /Applications/Xcode_26.6*.app 2>/dev/null | sort -V | tail -1); fi
+          if [ ! -d "$XC" ]; then XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1); fi
+          echo "Using: $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          sudo xcodebuild -runFirstLaunch || true
+          xcodebuild -version || true
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
+
+      - name: Install tools
+        run: brew install xcodegen ldid
+
+      - name: Go unit sanity (vet)
+        working-directory: ios-ne/core
+        run: go vet ./...
+
+      - name: Build Go core (gomobile xcframework)
+        working-directory: ios-ne/core
+        run: |
+          set -e
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+          mkdir -p ../build
+          gomobile bind -target=ios/arm64 -iosversion=15.0 -trimpath -ldflags="-s -w" \
+            -o ../build/Btfcore.xcframework ./btfcore
+          find ../build/Btfcore.xcframework -maxdepth 3 | head -20
+
+      - name: Generate Xcode project
+        working-directory: ios-ne
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        working-directory: ios-ne
+        run: |
+          set -o pipefail
+          xcodebuild -project BridgeNE.xcodeproj -scheme BridgeNE \
+            -configuration Release -sdk iphoneos -arch arm64 \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -60
+
+      - name: Fake-sign with entitlements and package
+        working-directory: ios-ne
+        run: |
+          set -e
+          APP=$(find build/dd/Build/Products -maxdepth 2 -name 'BridgeNE.app' -type d | head -1)
+          echo "App: $APP"
+          ldid -SApp/App.entitlements "$APP/BridgeNE"
+          for X in "$APP"/PlugIns/*.appex; do
+            ldid -SPacketTunnel/Tunnel.entitlements "$X/PacketTunnel"
+          done
+          echo "--- entitlements (app)";  ldid -e "$APP/BridgeNE"
+          echo "--- entitlements (appex)"; ldid -e "$APP"/PlugIns/PacketTunnel.appex/PacketTunnel
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          zip -qry BTF-VPN.ipa Payload
+          cp BTF-VPN.ipa BTF-VPN.tipa
+          ls -la BTF-VPN.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: btf-vpn-trollstore
+          path: |
+            ios-ne/BTF-VPN.ipa
+            ios-ne/BTF-VPN.tipa
+          if-no-files-found: error
