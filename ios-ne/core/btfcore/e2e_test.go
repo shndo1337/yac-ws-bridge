@@ -2,6 +2,7 @@ package btfcore
 
 import (
 	"context"
+	"runtime"
 	"io"
 	"net"
 	"net/http"
@@ -163,5 +164,27 @@ func TestE2E(t *testing.T) {
 	}
 	resp.Body.Close()
 	t.Logf("GET http://1.1.1.1/ -> %d", resp.StatusCode)
+	if big := os.Getenv("BTF_BIG"); big != "" {
+		host := strings.TrimPrefix(strings.TrimPrefix(big, "http://"), "https://")
+		host = strings.SplitN(host, "/", 2)[0]
+		ip := resolve(host)
+		parsed := net.ParseIP(ip).To4()
+		tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return gonet.DialContextTCP(ctx, cs, tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte(parsed)), Port: 80}, ipv4.ProtocolNumber)
+		}}
+		cl := &http.Client{Transport: tr, Timeout: 120 * time.Second}
+		start := time.Now()
+		resp, err := cl.Get(big)
+		if err != nil {
+			t.Fatalf("big get: %v", err)
+		}
+		n, _ := io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		d := time.Since(start)
+		t.Logf("BIG %s: %d bytes in %v = %.2f Mbit/s", big, n, d, float64(n)*8/d.Seconds()/1e6)
+	}
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	t.Logf("mem: HeapAlloc=%.1fMB HeapSys=%.1fMB Sys=%.1fMB", float64(ms.HeapAlloc)/1e6, float64(ms.HeapSys)/1e6, float64(ms.Sys)/1e6)
 	t.Logf("final status: %s", core.Status())
 }
